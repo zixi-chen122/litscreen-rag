@@ -1,0 +1,17 @@
+review_topic: >
+  Effectiveness of remote patient monitoring (RPM) interventions on
+  hospital readmission rates for adults with chronic heart failure.
+
+inclusion_criteria:
+  - "Population: adult patients (18+) diagnosed with chronic heart failure."
+  - "Intervention: a remote patient monitoring intervention (e.g. wearable sensors, telehealth check-ins, home vital-sign transmission)."
+  - "Comparison: usual care, standard follow-up, or no RPM."
+  - "Outcome: reports hospital readmission rate (all-cause or heart-failure-specific) as an outcome measure."
+  - "Study design: randomized controlled trial, cohort study, or quasi-experimental study."
+
+exclusion_criteria:
+  - "Pediatric-only populations."
+  - "Conference abstracts, editorials, letters, or protocol-only papers with no reported outcome data."
+  - "Studies not available in English."
+  - "Purely qualitative studies with no quantitative readmission data."
+  - "Animal or in-vitro studies."
