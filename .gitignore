@@ -6,3 +6,11 @@ chroma_db/
 .pytest_cache/
 *.egg-info/
 .DS_Store
+data/review_queue.jsonl
+
+# SYNERGY abstracts may not be republished as plain text (SYNERGY licence)
+data/synergy*/
+data/evaluation_results_*_20*.csv
+
+# Download cache written by the synergy package
+synergy_cache.sqlite
