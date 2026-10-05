@@ -6,7 +6,7 @@ Run with: streamlit run app.py
 import pandas as pd
 import streamlit as st
 
-from src.screening_agent import screen_paper
+from src.screening_chain import screen_paper
 from src.qa_agent import answer_question
 
 st.set_page_config(page_title="LitScreen RAG", layout="wide")

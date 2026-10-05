@@ -37,7 +37,7 @@ approach used in an earlier academic version of this idea.
    (title,                          │                        │
     abstract)                       │                        │
                                      ▼                        ▼
-                          screening_agent.py          qa_agent.py
+                          screening_chain.py          qa_agent.py
                           (per-paper decision,         (free-text Q&A
                            grounded in similar          over the corpus,
                            screened examples)           with citations)
@@ -65,9 +65,13 @@ litscreen-rag/
 │   ├── config.py            # env/config, LLM + embeddings client setup
 │   ├── ingest.py             # load papers, chunk, embed, persist to Chroma
 │   ├── retriever.py          # similarity search + few-shot example retrieval
-│   ├── screening_agent.py    # RAG-grounded include/exclude decision chain
+│   ├── screening_chain.py    # RAG-grounded include/exclude decision chain
+│   ├── screening_agent_tools.py  # tool-using agent: searches examples, can flag for review
 │   ├── qa_agent.py           # RetrievalQA over the corpus with citations
-│   └── evaluate.py           # precision/recall/F1 against gold labels
+│   ├── datasets.py           # resolves --dataset to examples, eval papers and criteria
+│   ├── load_synergy.py       # turns a SYNERGY dataset into seed/test splits + criteria
+│   ├── evaluate.py           # precision/recall/F1 against gold labels
+│   └── summarize_runs.py     # mean and range of each setup across repeat runs
 ├── data/
 │   ├── criteria.yaml          # example inclusion/exclusion criteria
 │   ├── sample_papers.csv      # example paper corpus to screen
@@ -151,11 +155,34 @@ Replace `data/sample_papers.csv` with your own paper set (columns: `title`,
 `abstract`, `doi`, optionally `gold_label`), edit `data/criteria.yaml` with
 your review's actual inclusion/exclusion criteria, and re-run `ingest.py`.
 
+## Evaluating on a SYNERGY dataset
+
+[SYNERGY](https://github.com/asreview/synergy-dataset) provides real
+systematic-review screening decisions. Prepare one into a seed split (ingested
+as retrieval examples) and a held-out test split (screened and scored):
+
+```bash
+synergy get -d Donners_2021 -o data/synergy
+python -m src.load_synergy --dataset Donners_2021
+python -m src.ingest --dataset Donners_2021
+python -m src.evaluate --dataset Donners_2021 --run-tag run1   # add --agent for the agent
+python -m src.evaluate --dataset Donners_2021 --k-examples 0 --run-tag run1   # no-retrieval baseline
+python -m src.summarize_runs --dataset Donners_2021
+```
+
+`--run-tag` keeps repeat runs in separate files, and `summarize_runs` reports
+each setup's mean and range across them. Preliminary results on two SYNERGY
+reviews are in [RESULTS.md](RESULTS.md).
+
+Check `data/synergy/prepared/<dataset>/criteria.json` first: the criteria are
+split automatically and may need hand-editing. `evaluate` refuses to run if the
+examples in Chroma came from a different dataset or contain any test paper.
+`--dataset sample` (the default) uses the bundled data in `data/`.
+
 ## Roadmap / possible extensions
 
 - Swap Chroma for a managed vector DB (Pinecone, Azure AI Search) for
   larger corpora.
 - Add MLflow tracking for prompt versions and evaluation runs over time.
-- Add a LangChain agent with tools (`search_corpus`, `screen_paper`,
-  `flag_for_human_review`) instead of a fixed chain, for more complex
-  multi-step review workflows.
+- Confirm the SYNERGY results on a review from SYNERGY's "test" group (see
+  [RESULTS.md](RESULTS.md)).
