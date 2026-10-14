@@ -25,7 +25,12 @@ CHROMA_COLLECTION_NAME = "litscreen_papers"
 
 
 def get_chat_model(temperature: float = 0.0):
-    """Return a LangChain chat model configured for the chosen provider."""
+    """Return a LangChain chat model configured for the chosen provider.
+
+    gpt-5 reasoning models (the default deployment) only support the default
+    temperature of 1: LangChain drops `temperature` from their requests, so it
+    only takes effect for models that accept it.
+    """
     if LLM_PROVIDER == "azure_v1":
         from langchain_openai import ChatOpenAI
 

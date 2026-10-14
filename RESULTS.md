@@ -98,7 +98,10 @@ its abstract; the reviewers likely judged it from the full text.
   random as the seed (retrieval examples); everything else is the test set.
   Xu: 10 + 50 seed papers; the test set keeps all remaining includes plus 200
   random excludes. Donners: 5 + 30 seed papers; the test set keeps everything.
-- **Model**: Azure OpenAI deployment `gpt-5-mini`, temperature 0. Embeddings:
+- **Model**: Azure OpenAI deployment `gpt-5-mini` at its default temperature
+  (1). The code asks for temperature 0, but gpt-5-mini only supports the
+  default: LangChain drops the parameter from the request, and the API rejects
+  0 when sent directly. Every run is therefore sampled. Embeddings:
   `text-embedding-3-small`, stored in Chroma.
 - **Leakage guards**: test papers never enter Chroma, and every RAG run checks
   that the stored examples come from the same split and share no paper with
@@ -120,8 +123,9 @@ its abstract; the reviewers likely judged it from the full text.
   reviewers screened.
 - Xu is scored against title/abstract decisions and Donners against final
   decisions, so their numbers are reported separately and not pooled.
-- Decisions vary between identical runs even at temperature 0 (on Xu, up to 12
-  unsure papers between runs), so single runs are not comparable.
+- Decisions vary between identical runs, because the model samples at its
+  default temperature (on Xu, up to 12 unsure papers between runs), so single
+  runs are not comparable.
 - Xu_2022 belongs to SYNERGY's "train" group and was used to choose settings.
   Confirmation on a "test" group review, with nothing changed afterwards, is
   still to do.
