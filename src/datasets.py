@@ -20,6 +20,15 @@ SAMPLE = "sample"
 SYNERGY_PREPARED_DIR = Path("data/synergy/prepared")
 
 
+def list_datasets() -> list[str]:
+    """'sample' plus every SYNERGY dataset prepared under data/synergy/prepared/."""
+    prepared = sorted(
+        p.name for p in SYNERGY_PREPARED_DIR.glob("*")
+        if all((p / f).exists() for f in ("seed.csv", "test.csv", "criteria.json"))
+    )
+    return [SAMPLE] + prepared
+
+
 def _synergy_dir(dataset: str) -> Path:
     path = SYNERGY_PREPARED_DIR / dataset
     if not path.is_dir():

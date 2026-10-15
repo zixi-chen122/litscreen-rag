@@ -109,12 +109,20 @@ def build_screening_agent(chat_model=None, criteria: dict | None = None):
 
 
 def screen_paper_agent(
-    title: str, abstract: str, doi: str = "", agent=None, max_steps: int = 12, stats: dict | None = None
+    title: str,
+    abstract: str,
+    doi: str = "",
+    agent=None,
+    max_steps: int = 12,
+    stats: dict | None = None,
+    trace: list | None = None,
 ) -> AgentScreeningDecision:
     """Screen a single paper with the tool-using agent.
 
     If `stats` is given, it is filled with how many times the agent searched
     and flagged, so evaluations can report the agent's extra cost per paper.
+    If `trace` is given, each tool call's name and arguments are appended to
+    it, so the demo UI can show what the agent did.
     """
     agent = agent or build_screening_agent()
     result = agent.invoke(
@@ -124,14 +132,17 @@ def screen_paper_agent(
     )
     decision: AgentScreeningDecision = result["structured_response"]
 
-    tool_calls = [
-        call["name"]
+    calls = [
+        call
         for msg in result["messages"]
         for call in (getattr(msg, "tool_calls", None) or [])
     ]
+    tool_calls = [call["name"] for call in calls]
     if stats is not None:
         stats["n_searches"] = tool_calls.count("search_similar_examples")
         stats["n_flags"] = tool_calls.count("flag_for_human_review")
+    if trace is not None:
+        trace.extend({"name": call["name"], "args": call.get("args", {})} for call in calls)
 
     # Trust the tool trace over the model's self-report for the flag.
     flagged = "flag_for_human_review" in tool_calls

@@ -75,16 +75,25 @@ def _format_examples(example_docs) -> str:
 
 
 def screen_paper(
-    title: str, abstract: str, k_examples: int = 3, chat_model=None, criteria: dict | None = None
+    title: str,
+    abstract: str,
+    k_examples: int = 3,
+    chat_model=None,
+    criteria: dict | None = None,
+    example_docs=None,
 ) -> ScreeningDecision:
     """Screen a single paper and return a structured ScreeningDecision.
 
     `criteria` defaults to the sample dataset's criteria.yaml. k_examples=0
     skips retrieval entirely (the criteria-only baseline); the prompt is
     otherwise unchanged so the two runs are directly comparable.
+    `example_docs` uses already-retrieved examples instead of retrieving
+    (the demo UI retrieves once so it can show them).
     """
     criteria = criteria or _load_criteria()
-    if k_examples > 0:
+    if example_docs is not None:
+        examples = _format_examples(example_docs)
+    elif k_examples > 0:
         examples = _format_examples(
             retrieve_similar_examples(f"Title: {title}\n\nAbstract: {abstract}", k=k_examples)
         )

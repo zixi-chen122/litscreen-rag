@@ -95,3 +95,19 @@ def test_screen_paper_agent_reports_search_and_flag_counts():
     screen_paper_agent("T", "A", agent=_fake_agent(messages, structured), stats=stats)
 
     assert stats == {"n_searches": 2, "n_flags": 1}
+
+
+def test_screen_paper_agent_traces_tool_calls_in_order():
+    structured = AgentScreeningDecision(decision="exclude", rationale="r", confidence=0.5)
+    messages = [
+        AIMessage(content="", tool_calls=[{"name": "search_similar_examples", "args": {"query": "q1"}, "id": "1"}]),
+        AIMessage(content="", tool_calls=[{"name": "flag_for_human_review", "args": {"reason": "no outcome"}, "id": "2"}]),
+    ]
+    trace = []
+
+    screen_paper_agent("T", "A", agent=_fake_agent(messages, structured), trace=trace)
+
+    assert trace == [
+        {"name": "search_similar_examples", "args": {"query": "q1"}},
+        {"name": "flag_for_human_review", "args": {"reason": "no outcome"}},
+    ]

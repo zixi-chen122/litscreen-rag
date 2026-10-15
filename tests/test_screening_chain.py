@@ -87,3 +87,26 @@ def test_screen_paper_with_zero_examples_skips_retrieval(monkeypatch):
 
     assert result.decision == "exclude"
     assert fake_structured_model.invoke.call_args.args[0]["examples"] == "(none provided)"
+
+
+def test_screen_paper_uses_given_example_docs_without_retrieving(monkeypatch):
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("retrieval should be skipped when example_docs is given")
+
+    monkeypatch.setattr("src.screening_chain.retrieve_similar_examples", fail_if_called)
+
+    fake_structured_model = MagicMock()
+    fake_structured_model.invoke.return_value = ScreeningDecision(
+        decision="include", rationale="Matches all inclusion criteria.", confidence=0.9
+    )
+    fake_chat_model = MagicMock()
+    fake_chat_model.with_structured_output.return_value = fake_structured_model
+
+    import src.screening_chain as sa
+
+    monkeypatch.setattr(type(sa.SCREENING_PROMPT), "__or__", lambda self, other: other, raising=False)
+
+    docs = [Document(page_content="x", metadata={"title": "Given Example", "decision": "include", "rationale": "r"})]
+    screen_paper("Some Title", "Some abstract text.", chat_model=fake_chat_model, example_docs=docs)
+
+    assert "Given Example" in fake_structured_model.invoke.call_args.args[0]["examples"]
