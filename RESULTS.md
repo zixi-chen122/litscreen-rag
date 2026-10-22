@@ -10,7 +10,9 @@ criteria. This page compares three setups on real screening decisions from the
 - **Baseline**: the same prompt with no retrieved examples (`--k-examples 0`).
 - **Agent**: the model decides when and what to search, and can flag a paper
   for human review, which makes its decision unsure
-  (`src/screening_agent_tools.py`).
+  (`src/screening_agent_tools.py`). The agent has since gained a third tool,
+  `get_paper_metadata` (the paper's OpenAlex publication type, venue, year,
+  language and keywords). The agent results below were run before it existed.
 
 20 runs across two reviews, as of 5 October 2026. These results are
 preliminary: see [Limits](#limits).

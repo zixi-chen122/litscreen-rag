@@ -66,7 +66,7 @@ litscreen-rag/
 │   ├── ingest.py             # load papers, chunk, embed, persist to Chroma
 │   ├── retriever.py          # similarity search + few-shot example retrieval
 │   ├── screening_chain.py    # RAG-grounded include/exclude decision chain
-│   ├── screening_agent_tools.py  # tool-using agent: searches examples, can flag for review
+│   ├── screening_agent_tools.py  # tool-using agent: searches examples, looks up OpenAlex metadata, can flag for review
 │   ├── qa_agent.py           # RetrievalQA over the corpus with citations
 │   ├── datasets.py           # resolves --dataset to examples, eval papers and criteria
 │   ├── load_synergy.py       # turns a SYNERGY dataset into seed/test splits + criteria

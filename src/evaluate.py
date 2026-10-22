@@ -134,6 +134,9 @@ def run_evaluation(use_agent: bool = False, dataset: str = SAMPLE, k_examples: i
     if "n_searches" in df.columns:
         print(f"Agent searches per paper: mean {df['n_searches'].mean():.2f}, max {df['n_searches'].max():.0f}; "
               f"flagged for review: {int(df['n_flags'].sum())}")
+    if "n_metadata_lookups" in df.columns:
+        print(f"Agent metadata lookups: {int(df['n_metadata_lookups'].sum())} total, "
+              f"on {int((df['n_metadata_lookups'] > 0).sum())} of {len(df)} papers")
     print(f"Precision: {m['precision']:.2f}  Recall: {m['recall']:.2f}  F1: {m['f1']:.2f}")
     print(f"Unsure count: {m['unsure']} / {len(df)}")
     if weight != 1.0:
