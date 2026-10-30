@@ -17,7 +17,7 @@ import pandas as pd
 from src.datasets import load_criteria, load_exclude_weight, load_final_labels
 from src.evaluate import compute_metrics, criteria_fingerprint
 
-CONFIG_COLUMNS = ["run_label", "run_mode", "run_k_examples", "run_criteria"]
+CONFIG_COLUMNS = ["run_label", "run_mode", "run_example_selection", "run_k_examples", "run_criteria"]
 
 
 def collect_runs(dataset: str, results_dir: Path = Path("data")) -> tuple[pd.DataFrame, list[str]]:
@@ -31,6 +31,8 @@ def collect_runs(dataset: str, results_dir: Path = Path("data")) -> tuple[pd.Dat
             continue
         if "run_label" not in df.columns:  # runs saved before labels were recorded
             df["run_label"] = "final"
+        if "run_example_selection" not in df.columns:  # runs saved before selection was an option
+            df["run_example_selection"] = "" if df["run_mode"].iloc[0] == "agent" else "similar"
         if "label_final" not in df.columns and df["run_label"].iloc[0] != "final":
             df["label_final"] = df["paper_id"].map(load_final_labels(dataset))
         # Older runs don't record the weight; fall back to the dataset's split.json.
@@ -51,12 +53,20 @@ def _fmt(values: pd.Series, digits: int) -> str:
     return f"{mean} ({values.min():.{digits}f}–{values.max():.{digits}f})"
 
 
+def _setup_name(mode: str, selection: str, k: int) -> str:
+    if mode == "agent":
+        return "agent"
+    if k == 0:
+        return "baseline (k=0)"
+    return {"similar": f"RAG (k={k})", "random": f"random (k={k})", "all": f"all seed (n={k})"}[selection]
+
+
 def summarize(runs: pd.DataFrame, current_criteria: str) -> pd.DataFrame:
     summary = []
     for config, group in runs.groupby(CONFIG_COLUMNS):
-        label, mode, k, criteria = config
+        label, mode, selection, k, criteria = config
         summary.append({
-            "setup": "agent" if mode == "agent" else ("baseline (k=0)" if k == 0 else f"RAG (k={k})"),
+            "setup": _setup_name(mode, selection, k),
             "labels": label,
             "criteria": criteria + (" (current)" if criteria == current_criteria else ""),
             "runs": len(group),

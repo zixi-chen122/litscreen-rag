@@ -1,0 +1,7 @@
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv", "chroma_db", "data"]
+
+[lint]
+# Short assigned lambdas are used deliberately for one-line helpers.
+ignore = ["E731"]

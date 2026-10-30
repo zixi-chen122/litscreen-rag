@@ -17,9 +17,11 @@ The final answer is returned as the same ScreeningDecision schema, so
 evaluate.py can compare both screeners on identical metrics.
 """
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 import httpx
 from langchain.agents import create_agent
@@ -27,10 +29,11 @@ from langchain.tools import ToolRuntime, tool
 from pydantic import BaseModel, Field
 
 from src.config import get_chat_model
+from src.ingest import EXAMPLES_COLLECTION_NAME
 from src.retriever import retrieve_similar_examples
 from src.screening_chain import _format_criteria, _format_examples, _load_criteria
 
-REVIEW_QUEUE_PATH = Path("data/review_queue.jsonl")
+REVIEW_QUEUE_PATH = Path(os.getenv("REVIEW_QUEUE_PATH", "data/review_queue.jsonl"))
 MAX_EXAMPLES_PER_SEARCH = 5
 OPENALEX_WORKS_URL = "https://api.openalex.org/works/"
 OPENALEX_FIELDS = "type,publication_year,language,primary_location,primary_topic,keywords"
@@ -46,7 +49,7 @@ class PaperContext:
 
 
 class AgentScreeningDecision(BaseModel):
-    decision: str = Field(description="One of: 'include', 'exclude', 'unsure'")
+    decision: Literal["include", "exclude", "unsure"] = Field(description="One of: 'include', 'exclude', 'unsure'")
     rationale: str = Field(description="One or two sentence justification citing which criterion applied")
     confidence: float = Field(description="Confidence in the decision, from 0.0 to 1.0")
     flagged_for_review: bool = Field(
@@ -62,6 +65,19 @@ def search_similar_examples(query: str, k: int = 3) -> str:
     design) when that criterion is borderline."""
     k = max(1, min(k, MAX_EXAMPLES_PER_SEARCH))
     return _format_examples(retrieve_similar_examples(query, k=k))
+
+
+def _search_tool_for(collection_name: str):
+    """search_similar_examples over another examples collection (a project's)."""
+    if collection_name == EXAMPLES_COLLECTION_NAME:
+        return search_similar_examples
+
+    @tool("search_similar_examples", description=search_similar_examples.description)
+    def search(query: str, k: int = 3) -> str:
+        k = max(1, min(k, MAX_EXAMPLES_PER_SEARCH))
+        return _format_examples(retrieve_similar_examples(query, k=k, collection_name=collection_name))
+
+    return search
 
 
 def _openalex_key(paper_id: str) -> str | None:
@@ -154,11 +170,14 @@ def _build_system_prompt(criteria: dict | None = None) -> str:
     )
 
 
-def build_screening_agent(chat_model=None, criteria: dict | None = None):
-    """Build the agent once; reuse it across papers. `criteria` defaults to the sample dataset's."""
+def build_screening_agent(
+    chat_model=None, criteria: dict | None = None, examples_collection: str = EXAMPLES_COLLECTION_NAME
+):
+    """Build the agent once; reuse it across papers. `criteria` defaults to the
+    sample dataset's; `examples_collection` is the Chroma collection it searches."""
     return create_agent(
         model=chat_model or get_chat_model(),
-        tools=[search_similar_examples, get_paper_metadata, flag_for_human_review],
+        tools=[_search_tool_for(examples_collection), get_paper_metadata, flag_for_human_review],
         system_prompt=_build_system_prompt(criteria),
         response_format=AgentScreeningDecision,
         context_schema=PaperContext,

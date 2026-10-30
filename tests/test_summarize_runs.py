@@ -4,12 +4,13 @@ from src.evaluate import compute_metrics, criteria_fingerprint
 from src.summarize_runs import CONFIG_COLUMNS, summarize
 
 
-def _run(predicted, k=3, criteria="aaaa1111"):
+def _run(predicted, k=3, criteria="aaaa1111", selection="similar"):
     return pd.DataFrame({
         "gold_label": ["include", "include", "exclude", "exclude"],
         "predicted_label": predicted,
         "run_label": "final",
         "run_mode": "chain",
+        "run_example_selection": selection,
         "run_k_examples": k,
         "run_criteria": criteria,
     })
@@ -64,3 +65,11 @@ def test_compute_metrics_unsure_kept_and_final_lost():
     assert m["recall_unsure_kept"] == 0.5     # the unsure include goes to a person
     assert m["final_includes"] == 2
     assert m["final_lost"] == 1               # the second final include was excluded
+
+
+def test_summarize_separates_example_selections():
+    rows = []
+    for df in [_run(["include"] * 4), _run(["include"] * 4, selection="random"), _run(["include"] * 4, k=60, selection="all")]:
+        rows.append({**df.iloc[0][CONFIG_COLUMNS].to_dict(), **compute_metrics(df)})
+    setups = set(summarize(pd.DataFrame(rows), current_criteria="aaaa1111")["setup"])
+    assert setups == {"RAG (k=3)", "random (k=3)", "all seed (n=60)"}
