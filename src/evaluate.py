@@ -9,8 +9,10 @@ and a screening tool with a measured accuracy you can actually cite.
 come from the same review.
 """
 import argparse
+import time
 
 import pandas as pd
+from langchain_core.callbacks import get_usage_metadata_callback
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 from src.datasets import SAMPLE, load_criteria, load_eval_papers, load_exclude_weight, load_label_source
@@ -100,15 +102,24 @@ def run_evaluation(
 
     for _, row in df.iterrows():
         stats = {}
-        try:
-            result = screen(row, stats).model_dump()
-            error = ""
-        except Exception as e:  # e.g. the agent hit its step limit, or an API error
-            # Record the paper as unsure (it would go to a person) and keep the
-            # run going; the error is kept so these papers can be found later.
-            error = f"{type(e).__name__}: {e}"[:300]
-            result = {"decision": "unsure", "rationale": f"ERROR {error}", "confidence": 0.0}
-        results.append({**result, **stats, "error": error})
+        start = time.perf_counter()
+        # Counts the chat model's tokens across every call for this paper
+        # (the agent makes several); embedding calls are not included.
+        with get_usage_metadata_callback() as usage:
+            try:
+                result = screen(row, stats).model_dump()
+                error = ""
+            except Exception as e:  # e.g. the agent hit its step limit, or an API error
+                # Record the paper as unsure (it would go to a person) and keep the
+                # run going; the error is kept so these papers can be found later.
+                error = f"{type(e).__name__}: {e}"[:300]
+                result = {"decision": "unsure", "rationale": f"ERROR {error}", "confidence": 0.0}
+        cost = {
+            "latency_s": round(time.perf_counter() - start, 3),
+            "input_tokens": sum(u.get("input_tokens", 0) for u in usage.usage_metadata.values()),
+            "output_tokens": sum(u.get("output_tokens", 0) for u in usage.usage_metadata.values()),
+        }
+        results.append({**result, **stats, **cost, "error": error})
         print(
             f"[{result['decision'].upper():7s}] (conf {result['confidence']:.2f}) {row['title'][:70]}\n"
             f"          gold={row['gold_label']}  rationale={result['rationale']}\n"
@@ -143,6 +154,8 @@ def run_evaluation(
     if "n_metadata_lookups" in df.columns:
         print(f"Agent metadata lookups: {int(df['n_metadata_lookups'].sum())} total, "
               f"on {int((df['n_metadata_lookups'] > 0).sum())} of {len(df)} papers")
+    print(f"Latency per paper: mean {df['latency_s'].mean():.1f}s, max {df['latency_s'].max():.1f}s; "
+          f"chat tokens per paper: mean {df['input_tokens'].mean():.0f} in, {df['output_tokens'].mean():.0f} out")
     print(f"Precision: {m['precision']:.2f}  Recall: {m['recall']:.2f}  F1: {m['f1']:.2f}")
     print(f"Unsure count: {m['unsure']} / {len(df)}")
     if weight != 1.0:

@@ -31,6 +31,9 @@ def test_failed_paper_is_recorded_as_unsure_and_run_continues(tmp_path, monkeypa
     assert list(out["predicted_label"]) == ["include", "unsure", "include"]
     assert out.loc[1, "error"].startswith("RuntimeError: step limit reached")
     assert out.loc[0, "error"] == "" and out.loc[2, "error"] == ""
+    # Latency and token usage are recorded for every paper, failed ones too.
+    assert (out["latency_s"] >= 0).all()
+    assert list(out["input_tokens"]) == [0, 0, 0] and list(out["output_tokens"]) == [0, 0, 0]
 
 
 def test_example_selection_is_passed_through_and_recorded(tmp_path, monkeypatch):

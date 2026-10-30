@@ -43,19 +43,23 @@ approach used in an earlier academic version of this idea.
    (title,                          │                        │
     abstract)                       │                        │
                                      ▼                        ▼
-                          screening_chain.py          qa_agent.py
-                          (per-paper decision,         (free-text Q&A
-                           grounded in similar          over the corpus,
-                           screened examples)           with citations)
+                  screening_chain.py / screening_agent_tools.py   qa_agent.py
+                  (per-paper decision, grounded in similar    (free-text Q&A chain
+                   screened examples; the agent picks its      over the corpus,
+                   own searches and can flag for review)        with citations)
                                      │                        │
                                      ▼                        ▼
-                             evaluate.py               app.py (Streamlit UI)
-                        (precision/recall vs
-                          gold labels)
+                      evaluate.py · batch.py → app.py      demo_app.py
+                      (P/R/F1 vs gold labels;              (benchmark demo UI)
+                       screening your own review)
 ```
 
 - **Vector store**: [Chroma](https://www.trychroma.com/) — local, file-backed,
-  zero infrastructure to run or demo.
+  zero infrastructure to run or demo. Each paper is one document (title +
+  abstract, no chunking), embedded with `text-embedding-3-small`; search is
+  Chroma's default HNSW index with L2 distance, which ranks the same as cosine
+  for these normalised embeddings. The chain retrieves the 3 nearest screened
+  examples, the agent 1–5 per search, Q&A 5 papers.
 - **LLM**: Azure OpenAI (`gpt-5-mini` deployment) by default, with a one-line
   switch to plain OpenAI for local testing without an Azure account.
 - **Orchestration**: [LangChain](https://python.langchain.com/) for the
@@ -69,11 +73,11 @@ approach used in an earlier academic version of this idea.
 litscreen-rag/
 ├── src/
 │   ├── config.py            # env/config, LLM + embeddings client setup
-│   ├── ingest.py             # load papers, chunk, embed, persist to Chroma
+│   ├── ingest.py             # load papers (one document each), embed, persist to Chroma
 │   ├── retriever.py          # similarity search + few-shot example retrieval
 │   ├── screening_chain.py    # RAG-grounded include/exclude decision chain
 │   ├── screening_agent_tools.py  # tool-using agent: searches examples, looks up OpenAlex metadata, can flag for review
-│   ├── qa_agent.py           # RetrievalQA over the corpus with citations
+│   ├── qa_agent.py           # Q&A chain: retrieve 5 abstracts, answer with citations (not an agent)
 │   ├── datasets.py           # resolves --dataset to examples, eval papers and criteria
 │   ├── load_synergy.py       # turns a SYNERGY dataset into seed/test splits + criteria
 │   ├── projects.py           # review projects in SQLite: import (CSV/RIS), dedupe, labels, AI decisions
