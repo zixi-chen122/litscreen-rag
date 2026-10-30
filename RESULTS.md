@@ -8,25 +8,35 @@ criteria. This page compares three setups on real screening decisions from the
 - **RAG**: the prompt contains the criteria plus the 3 already-screened papers
   most similar to the candidate (`src/screening_chain.py`).
 - **Baseline**: the same prompt with no retrieved examples (`--k-examples 0`).
+- **Random**: the same prompt with 3 already-screened papers drawn at random
+  instead of by similarity (`--example-selection random`), the control that
+  separates the effect of similarity from the effect of having examples at all.
 - **Agent**: the model decides when and what to search, and can flag a paper
   for human review, which makes its decision unsure
-  (`src/screening_agent_tools.py`).
+  (`src/screening_agent_tools.py`). The agent has since gained a third tool,
+  `get_paper_metadata` (the paper's OpenAlex publication type, venue, year,
+  language and keywords). The agent results below were run before it existed.
 
-20 runs across two reviews, as of 5 October 2026. These results are
+21 runs across two reviews, as of 26 October 2026. These results are
 preliminary: see [Limits](#limits).
 
 ## Short answer
 
-Retrieval makes the model more decisive without making it less safe. On the
-Xu_2022 review it raised strict recall from about 0.37 to 0.44 and left 11–15%
-fewer papers for a person to check, on both data splits. It did not change
-precision, and no run of any setup excluded a paper that ended up in the final
-review.
+Retrieved examples make the model more decisive without making it less safe.
+On the Xu_2022 review they raised strict recall from about 0.37 to 0.44 and
+left 11–15% fewer papers for a person to check, on both data splits. They did
+not change precision, and no run of any setup excluded a paper that ended up
+in the final review.
+
+Whether the examples need to be *similar* is not settled. One run with random
+examples was as decisive (F1 0.51, the same as similarity retrieval) but
+excluded more of the reviewers' includes (recall with unsure kept 0.75 against
+0.82). With one run, that difference is a lead, not a finding.
 
 The tool-using agent did not improve on this. It was the most cautious setup,
 leaving about 24 more papers for a person than the fixed chain, with the same
-precision. Retrieval helps the screening workflow by reducing manual work; it
-does not make borderline judgements more accurate.
+precision. Retrieved examples help the screening workflow by reducing manual work;
+they do not make borderline judgements more accurate.
 
 ## Findings
 
@@ -36,6 +46,7 @@ does not make borderline judgements more accurate.
 | **Fewer papers left for a person** (repeated) | Unsure decisions dropped from 97 to 86 (split 1) and from 88 to 75 (split 2) out of 276, about 4–5 percentage points at the review's real inclusion rate. Ranges overlap on split 1, so the size is less certain than the direction. |
 | **Precision unchanged** (no effect) | Corrected precision 0.23 vs 0.21 (split 1) and 0.28 vs 0.28 (split 2). When retrieval turns an unsure into an include, it is right about half the time. |
 | **No relevant papers lost** (all setups) | No run excluded a paper the reviewers kept after reading the full text (20 such papers in split 1's test set, 17 in split 2's). |
+| **Similar vs random examples** (one run, unconfirmed) | On split 2, random examples gave strict recall 0.45 and 67 unsure papers, against 0.43 and 75 for similar ones, but kept fewer gold includes out of the exclude pile (0.75 vs 0.82). |
 | **Agent: more cautious, not more accurate** | On split 2 (2 runs): strict recall 0.32 vs 0.43 for RAG, 99 vs 75 unsure papers, precision 0.30 vs 0.28. It searched 1.02 times per paper on average, and all its unsure decisions came from flagging. It needs 2–3 model calls per paper instead of 1. |
 | **Criteria wording matters more than retrieval** (large effect) | On Donners_2021, removing one inclusion clause ("access to the full text in English") dropped precision from 1.00 to about 0.55, because conference abstracts started being included. |
 | **The model screens like a strict final reviewer** (observed) | Against the reviewers' lenient title/abstract decisions, strict recall looks low. The "missed" papers are mostly ones the reviewers dropped themselves after reading the full text, often studies the written criteria explicitly exclude. |
@@ -46,8 +57,8 @@ Review: Xu et al., *A conducive learning environment in international higher
 education*, Educational Research Review (2022),
 [doi:10.1016/j.edurev.2022.100474](https://doi.org/10.1016/j.edurev.2022.100474).
 Judgement-heavy criteria: 4 inclusion and 8 exclusion rules. Scored against the
-reviewers' title/abstract decisions. Mean of 3 runs (agent: 2), range in
-brackets.
+reviewers' title/abstract decisions. Mean of 3 runs (agent: 2, random: 1),
+range in brackets.
 
 | Setup | Recall (strict) | Unsure (of 276) | Unsure % (adj) | Precision (adj) | Recall (unsure kept) | Final lost |
 |---|---|---|---|---|---|---|
@@ -57,6 +68,7 @@ brackets.
 | **Split 2** (random state 7) | | | | | | |
 | RAG | 0.43 (0.41–0.49) | 75 (74–76) | 23.9 (23.7–24.2) | 0.28 (0.25–0.30) | 0.82 (0.79–0.86) | 0 of 17 |
 | Baseline | 0.38 (0.36–0.39) | 88 (87–89) | 28.8 (28.4–29.0) | 0.28 (0.27–0.30) | 0.82 (0.80–0.83) | 0 of 17 |
+| Random | 0.45 | 67 | 22.7 | 0.26 | 0.75 | 0 of 17 |
 | Agent | 0.32 (0.32–0.32) | 99 (98–100) | 32.1 (31.9–32.4) | 0.30 (0.27–0.33) | 0.82 (0.79–0.84) | 0 of 17 |
 
 Raw precision on the downsampled test set ranged from 0.50 to 0.67 across runs.
@@ -98,7 +110,10 @@ its abstract; the reviewers likely judged it from the full text.
   random as the seed (retrieval examples); everything else is the test set.
   Xu: 10 + 50 seed papers; the test set keeps all remaining includes plus 200
   random excludes. Donners: 5 + 30 seed papers; the test set keeps everything.
-- **Model**: Azure OpenAI deployment `gpt-5-mini`, temperature 0. Embeddings:
+- **Model**: Azure OpenAI deployment `gpt-5-mini` at its default temperature
+  (1). The code asks for temperature 0, but gpt-5-mini only supports the
+  default: LangChain drops the parameter from the request, and the API rejects
+  0 when sent directly. Every run is therefore sampled. Embeddings:
   `text-embedding-3-small`, stored in Chroma.
 - **Leakage guards**: test papers never enter Chroma, and every RAG run checks
   that the stored examples come from the same split and share no paper with
@@ -115,13 +130,20 @@ its abstract; the reviewers likely judged it from the full text.
 - The two Xu splits overlap: each test set keeps every non-seed include, so
   about 66 of 76 includes are shared. The splits mainly differ in which
   examples retrieval can see.
-- The agent was run on split 2 only, twice.
+- The agent was run on split 2 only, twice, and the random control once.
+- SYNERGY records labels but no reasons, so on these reviews each retrieved
+  example reaches the prompt as its title and the reviewers' decision only.
+  Examples with written rationales (as in the app, where a reviewer's note
+  becomes the rationale) were not evaluated.
+- Retrieval quality itself (whether the nearest examples share the deciding
+  criterion), latency and token cost were not measured in these runs.
 - Results cover the open-access subset with abstracts, not every record the
   reviewers screened.
 - Xu is scored against title/abstract decisions and Donners against final
   decisions, so their numbers are reported separately and not pooled.
-- Decisions vary between identical runs even at temperature 0 (on Xu, up to 12
-  unsure papers between runs), so single runs are not comparable.
+- Decisions vary between identical runs, because the model samples at its
+  default temperature (on Xu, up to 12 unsure papers between runs), so single
+  runs are not comparable.
 - Xu_2022 belongs to SYNERGY's "train" group and was used to choose settings.
   Confirmation on a "test" group review, with nothing changed afterwards, is
   still to do.
@@ -132,7 +154,8 @@ its abstract; the reviewers likely judged it from the full text.
    settings fixed here.
 2. Repeat the Donners RAG and baseline runs so it has three tagged runs per
    setup.
-3. Try the number of retrieved examples (1, 3, 5) on Xu, and a seed-size
+3. Repeat the random control to three runs, and try the number of examples
+   (1, 3, 5) for both similar and random selection on Xu, and a seed-size
    experiment with a fixed test set.
 4. Run the agent without its flag tool, to separate the effect of searching on
    its own from the effect of flagging.

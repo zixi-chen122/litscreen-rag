@@ -1,0 +1,18 @@
+# Keep secrets, local state and dev tooling out of the image.
+.env
+.env.*
+!.env.example
+.git
+.github
+.claude
+.venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+chroma_db
+litscreen.db*
+synergy_cache.sqlite
+data/synergy*
+data/review_queue.jsonl
+data/evaluation_results*.csv
+tests

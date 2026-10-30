@@ -14,6 +14,7 @@ from src.screening_agent_tools import (
     AgentScreeningDecision,
     PaperContext,
     flag_for_human_review,
+    get_paper_metadata,
     search_similar_examples,
     screen_paper_agent,
 )
@@ -44,6 +45,60 @@ def test_flag_for_human_review_appends_to_queue(tmp_path, monkeypatch):
     assert entry["doi"] == "10.1/x"
     assert entry["reason"] == "Outcome unclear"
     assert "10.1/x" in msg
+
+
+def test_openalex_key_handles_dois_openalex_ids_and_unknowns():
+    assert sat._openalex_key("10.1186/abc") == "doi:10.1186/abc"
+    assert sat._openalex_key("https://openalex.org/w2273754290") == "W2273754290"
+    assert sat._openalex_key("") is None
+
+
+def test_get_paper_metadata_formats_openalex_record(monkeypatch):
+    work = {
+        "type": "review",
+        "publication_year": 2019,
+        "language": "en",
+        "primary_location": {"source": {"display_name": "Some Conf", "type": "conference"}},
+        "primary_topic": {"display_name": "Heart failure"},
+        "keywords": [{"display_name": "telemonitoring"}, {"display_name": "readmission"}],
+    }
+    requested = []
+    monkeypatch.setattr(sat, "_fetch_openalex_work", lambda key: requested.append(key) or work)
+    runtime = SimpleNamespace(context=PaperContext(doi="10.1/x", title="Paper X"))
+
+    out = get_paper_metadata.func(runtime=runtime)
+
+    assert requested == ["doi:10.1/x"]
+    assert "Publication type: review" in out
+    assert "Venue: Some Conf (conference)" in out
+    assert "Keywords: telemonitoring, readmission" in out
+
+
+def test_get_paper_metadata_without_record_says_so(monkeypatch):
+    monkeypatch.setattr(sat, "_fetch_openalex_work", lambda key: None)
+    runtime = SimpleNamespace(context=PaperContext(doi="10.0001/synth", title="T"))
+
+    assert "No bibliographic record" in get_paper_metadata.func(runtime=runtime)
+
+
+def test_fetch_openalex_work_does_not_cache_failures(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(sat, "_openalex_cache", {})
+    request = httpx.Request("GET", "https://api.openalex.org/works/doi:10.1/x")
+    responses = [httpx.ConnectError("down"), httpx.Response(200, json={"type": "article"}, request=request)]
+
+    def fake_get(url, params, timeout):
+        item = responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(sat.httpx, "get", fake_get)
+
+    assert sat._fetch_openalex_work("doi:10.1/x") is None
+    assert sat._fetch_openalex_work("doi:10.1/x") == {"type": "article"}
+    assert sat._fetch_openalex_work("doi:10.1/x") == {"type": "article"}  # cached, no third request
 
 
 def _fake_agent(messages, structured):
@@ -94,4 +149,20 @@ def test_screen_paper_agent_reports_search_and_flag_counts():
 
     screen_paper_agent("T", "A", agent=_fake_agent(messages, structured), stats=stats)
 
-    assert stats == {"n_searches": 2, "n_flags": 1}
+    assert stats == {"n_searches": 2, "n_metadata_lookups": 0, "n_flags": 1}
+
+
+def test_screen_paper_agent_traces_tool_calls_in_order():
+    structured = AgentScreeningDecision(decision="exclude", rationale="r", confidence=0.5)
+    messages = [
+        AIMessage(content="", tool_calls=[{"name": "search_similar_examples", "args": {"query": "q1"}, "id": "1"}]),
+        AIMessage(content="", tool_calls=[{"name": "flag_for_human_review", "args": {"reason": "no outcome"}, "id": "2"}]),
+    ]
+    trace = []
+
+    screen_paper_agent("T", "A", agent=_fake_agent(messages, structured), trace=trace)
+
+    assert trace == [
+        {"name": "search_similar_examples", "args": {"query": "q1"}},
+        {"name": "flag_for_human_review", "args": {"reason": "no outcome"}},
+    ]

@@ -14,3 +14,6 @@ data/evaluation_results_*_20*.csv
 
 # Download cache written by the synergy package
 synergy_cache.sqlite
+
+# Project database (researchers' review data)
+litscreen.db*

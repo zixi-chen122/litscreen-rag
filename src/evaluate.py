@@ -9,15 +9,15 @@ and a screening tool with a measured accuracy you can actually cite.
 come from the same review.
 """
 import argparse
-import hashlib
-import json
+import time
 
 import pandas as pd
+from langchain_core.callbacks import get_usage_metadata_callback
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 from src.datasets import SAMPLE, load_criteria, load_eval_papers, load_exclude_weight, load_label_source
-from src.retriever import get_examples_store
-from src.screening_chain import screen_paper
+from src.retriever import all_examples, get_examples_store
+from src.screening_chain import EXAMPLE_SELECTIONS, criteria_fingerprint, screen_paper
 from src.screening_agent_tools import build_screening_agent, screen_paper_agent
 
 
@@ -35,12 +35,6 @@ def _check_examples_store(dataset: str, df: pd.DataFrame) -> None:
     leaked = example_dois & set(df["doi"])
     if leaked:
         raise SystemExit(f"Leakage: {len(leaked)} evaluation papers are also retrieval examples: {sorted(leaked)[:5]}")
-
-
-def criteria_fingerprint(criteria: dict) -> str:
-    """Short stable hash of the criteria, so runs with edited criteria are
-    never pooled with runs on the original ones."""
-    return hashlib.sha1(json.dumps(criteria, sort_keys=True).encode()).hexdigest()[:8]
 
 
 def compute_metrics(df: pd.DataFrame, exclude_weight: float = 1.0) -> dict:
@@ -76,13 +70,25 @@ def compute_metrics(df: pd.DataFrame, exclude_weight: float = 1.0) -> dict:
     }
 
 
-def run_evaluation(use_agent: bool = False, dataset: str = SAMPLE, k_examples: int = 3, run_tag: str | None = None):
-    if use_agent and k_examples != 3:
-        raise SystemExit("--k-examples applies to the chain only; the agent decides its own searches.")
+def run_evaluation(
+    use_agent: bool = False,
+    dataset: str = SAMPLE,
+    k_examples: int = 3,
+    run_tag: str | None = None,
+    example_selection: str = "similar",
+):
+    if use_agent and (k_examples != 3 or example_selection != "similar"):
+        raise SystemExit("--k-examples and --example-selection apply to the chain only; the agent decides its own searches.")
+    if example_selection not in EXAMPLE_SELECTIONS:
+        raise SystemExit(f"--example-selection must be one of {EXAMPLE_SELECTIONS}")
+    if k_examples == 0 and example_selection != "similar":
+        raise SystemExit("--k-examples 0 is the no-examples baseline; it takes no --example-selection.")
     df = load_eval_papers(dataset)
     criteria = load_criteria(dataset)
     if k_examples > 0:  # the criteria-only baseline never touches Chroma
         _check_examples_store(dataset, df)
+    if example_selection == "all":  # record how many examples every prompt holds
+        k_examples = len(all_examples())
     results = []
 
     if use_agent:
@@ -91,19 +97,29 @@ def run_evaluation(use_agent: bool = False, dataset: str = SAMPLE, k_examples: i
             return screen_paper_agent(row["title"], row["abstract"], doi=row["doi"], agent=agent, stats=stats)
     else:
         def screen(row, stats):
-            return screen_paper(row["title"], row["abstract"], k_examples=k_examples, criteria=criteria)
+            return screen_paper(row["title"], row["abstract"], k_examples=k_examples, criteria=criteria,
+                                example_selection=example_selection)
 
     for _, row in df.iterrows():
         stats = {}
-        try:
-            result = screen(row, stats).model_dump()
-            error = ""
-        except Exception as e:  # e.g. the agent hit its step limit, or an API error
-            # Record the paper as unsure (it would go to a person) and keep the
-            # run going; the error is kept so these papers can be found later.
-            error = f"{type(e).__name__}: {e}"[:300]
-            result = {"decision": "unsure", "rationale": f"ERROR {error}", "confidence": 0.0}
-        results.append({**result, **stats, "error": error})
+        start = time.perf_counter()
+        # Counts the chat model's tokens across every call for this paper
+        # (the agent makes several); embedding calls are not included.
+        with get_usage_metadata_callback() as usage:
+            try:
+                result = screen(row, stats).model_dump()
+                error = ""
+            except Exception as e:  # e.g. the agent hit its step limit, or an API error
+                # Record the paper as unsure (it would go to a person) and keep the
+                # run going; the error is kept so these papers can be found later.
+                error = f"{type(e).__name__}: {e}"[:300]
+                result = {"decision": "unsure", "rationale": f"ERROR {error}", "confidence": 0.0}
+        cost = {
+            "latency_s": round(time.perf_counter() - start, 3),
+            "input_tokens": sum(u.get("input_tokens", 0) for u in usage.usage_metadata.values()),
+            "output_tokens": sum(u.get("output_tokens", 0) for u in usage.usage_metadata.values()),
+        }
+        results.append({**result, **stats, **cost, "error": error})
         print(
             f"[{result['decision'].upper():7s}] (conf {result['confidence']:.2f}) {row['title'][:70]}\n"
             f"          gold={row['gold_label']}  rationale={result['rationale']}\n"
@@ -119,6 +135,7 @@ def run_evaluation(use_agent: bool = False, dataset: str = SAMPLE, k_examples: i
         run_dataset=dataset,
         run_mode="agent" if use_agent else "chain",
         run_k_examples=k_examples,
+        run_example_selection="" if use_agent else example_selection,
         run_criteria=criteria_fingerprint(criteria),
         run_label=load_label_source(dataset),
         run_exclude_weight=load_exclude_weight(dataset),
@@ -134,6 +151,11 @@ def run_evaluation(use_agent: bool = False, dataset: str = SAMPLE, k_examples: i
     if "n_searches" in df.columns:
         print(f"Agent searches per paper: mean {df['n_searches'].mean():.2f}, max {df['n_searches'].max():.0f}; "
               f"flagged for review: {int(df['n_flags'].sum())}")
+    if "n_metadata_lookups" in df.columns:
+        print(f"Agent metadata lookups: {int(df['n_metadata_lookups'].sum())} total, "
+              f"on {int((df['n_metadata_lookups'] > 0).sum())} of {len(df)} papers")
+    print(f"Latency per paper: mean {df['latency_s'].mean():.1f}s, max {df['latency_s'].max():.1f}s; "
+          f"chat tokens per paper: mean {df['input_tokens'].mean():.0f} in, {df['output_tokens'].mean():.0f} out")
     print(f"Precision: {m['precision']:.2f}  Recall: {m['recall']:.2f}  F1: {m['f1']:.2f}")
     print(f"Unsure count: {m['unsure']} / {len(df)}")
     if weight != 1.0:
@@ -143,7 +165,8 @@ def run_evaluation(use_agent: bool = False, dataset: str = SAMPLE, k_examples: i
     suffix = (
         ("" if dataset == SAMPLE else f"_{dataset}")
         + ("_agent" if use_agent else "")
-        + ("" if k_examples == 3 else f"_k{k_examples}")
+        + ("" if example_selection == "similar" else f"_{example_selection}")
+        + ("" if k_examples == 3 or example_selection == "all" else f"_k{k_examples}")
         + (f"_{run_tag}" if run_tag else "")
     )
     out_path = f"data/evaluation_results{suffix}.csv"
@@ -156,6 +179,9 @@ if __name__ == "__main__":
     parser.add_argument("--agent", action="store_true", help="Use the tool-calling agent instead of the fixed RAG chain")
     parser.add_argument("--dataset", default=SAMPLE, help="'sample' or a prepared SYNERGY dataset name, e.g. Donners_2021")
     parser.add_argument("--k-examples", type=int, default=3, help="retrieved examples per paper (chain only); 0 = criteria-only baseline, no retrieval")
+    parser.add_argument("--example-selection", choices=EXAMPLE_SELECTIONS, default="similar",
+                        help="how the chain picks examples: 'similar' (RAG), 'random' k, or 'all' seed examples (ignores --k-examples)")
     parser.add_argument("--run-tag", default=None, help="appended to the output file name (e.g. run1) so repeat runs don't overwrite each other")
     args = parser.parse_args()
-    run_evaluation(use_agent=args.agent, dataset=args.dataset, k_examples=args.k_examples, run_tag=args.run_tag)
+    run_evaluation(use_agent=args.agent, dataset=args.dataset, k_examples=args.k_examples, run_tag=args.run_tag,
+                   example_selection=args.example_selection)
